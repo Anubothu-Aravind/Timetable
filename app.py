@@ -298,7 +298,7 @@ if st.session_state.authenticated:
                             student_name = schedule_df['student_name'].iloc[0]
 
                             # Define weekday order
-                            weekday_order = ["Mon", "Tue", "Wedn", "Thu", "Fri", "Sat"]
+                            weekday_order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
                             # Convert 'day' column to categorical and sort by day and time slot
                             schedule_df['day'] = pd.Categorical(schedule_df['day'], categories=weekday_order,
