@@ -182,7 +182,16 @@ if not st.session_state.get("authenticated", False):
 
 # After Authentication
 if st.session_state.authenticated:
-    st.sidebar.write(f"✅ Logged in as: {st.session_state.user_email}")
+    
+    with st.sidebar:
+        if st.session_state.get("user_email"):
+            st.write(f"✅ Logged in as: {st.session_state.user_email}")
+            if st.button("Logout"):
+                st.session_state.authenticated = False  # Reset authentication state
+                st.session_state.is_admin = False  # Reset admin state
+                st.session_state.user_email = None  # Clear stored email
+                st.session_state.otp = None  # Clear OTP for security
+                st.rerun()  # Refresh the app
 
     tab1, tab2 = st.tabs(["Upload Timetable", "Check Schedule"])
 
