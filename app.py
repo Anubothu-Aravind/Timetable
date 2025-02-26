@@ -8,6 +8,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from supabase import create_client
 from dotenv import load_dotenv
+import re
 
 load_dotenv()
 st.set_page_config(page_title="Student Timetable Processor", page_icon="📅")
@@ -19,13 +20,6 @@ EMAIL_SENDER = os.getenv("EMAIL_SENDER")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-# Constants
-# ADMIN_EMAIL = "2200080137@kluniversity.in"  # Replace with your admin email
-# SMTP_SERVER = "smtp.gmail.com"
-# SMTP_PORT = 465
-# EMAIL_SENDER = "aanubothu@gmail.com"
-# EMAIL_PASSWORD = "rhdjcndngwrxango"
 
 time_slot_mapping = {
     1: "7:10 AM - 8:00 AM",
@@ -42,8 +36,6 @@ time_slot_mapping = {
 }
 
 # Initialize Supabase client
-# SUPABASE_URL = "https://nzvehfhhgoymyebernzn.supabase.co"
-# SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56dmVoZmhoZ295bXllYmVybnpuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mzk0Mjg2ODMsImV4cCI6MjA1NTAwNDY4M30.5i79rVe_BTC2lTVtWOdkxVOtd6EZb5ufQHhQqymMRwM"
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Streamlit session state for authentication
@@ -84,7 +76,6 @@ def send_otp(email):
             server.login(EMAIL_SENDER, EMAIL_PASSWORD)
             server.sendmail(EMAIL_SENDER, email, msg.as_string())  # Send email to recipient
 
-        # st.success("OTP sent successfully! Check your inbox.")
         return True
 
     except smtplib.SMTPAuthenticationError:
@@ -153,13 +144,95 @@ def check_availability(student_id):
         st.error(f"Error checking availability: {str(e)}")
         return None
 
+def get_all_timetable_data():
+    """Get all timetable data from Supabase"""
+    try:
+        response = supabase.table("timetable").select("*").execute()
+        return response.data
+    except Exception as e:
+        st.error(f"Error fetching data: {str(e)}")
+        return None
+
+def get_batch_year(student_id):
+    """Determine batch year from student ID"""
+    try:
+        if student_id.startswith("22000"):
+            return "Y22"
+        elif student_id.startswith("23000"):
+            return "Y23"
+        elif student_id.startswith("21000"):
+            return "Y21"
+        elif student_id.startswith("24000"):
+            return "Y24"
+        else:
+            return "Unknown"
+    except:
+        return "Unknown"
+
+def parse_class_details(class_details):
+    """Parse class details to extract course code, component, section, and room"""
+    try:
+        # Example format: "21CC3047-S - S-2 -RoomNo-L303 - 21CC3047"
+        pattern = r"([A-Z0-9]+)-([A-Z]) - ([A-Z]-\d+) -RoomNo-([A-Z0-9]+)(.*)"
+        match = re.match(pattern, class_details)
+        
+        if match:
+            course_code = match.group(1)
+            component = match.group(2)
+            section = match.group(3)
+            room = match.group(4)
+            return {
+                "course_code": course_code,
+                "component": component,
+                "section": section,
+                "room": room
+            }
+        else:
+            # If pattern doesn't match, return the raw string
+            return {
+                "course_code": "Unknown",
+                "component": "Unknown",
+                "section": "Unknown",
+                "room": "Unknown",
+                "raw": class_details
+            }
+    except:
+        return {
+            "course_code": "Unknown",
+            "component": "Unknown",
+            "section": "Unknown",
+            "room": "Unknown",
+            "raw": class_details
+        }
+
+def get_available_students(day, time_slot, all_data=None):
+    """Get list of students available at a specific day and time slot"""
+    if all_data is None:
+        all_data = get_all_timetable_data()
+        
+    if not all_data:
+        return []
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(all_data)
+    
+    # Get all unique student IDs
+    all_students = df[['id', 'student_name']].drop_duplicates()
+    
+    # Get busy students for this day and time slot
+    busy_students = df[(df['day'] == day) & (df['time_slot'] == time_slot)]['id'].unique()
+    
+    # Get available students (those not in busy_students)
+    available_students = all_students[~all_students['id'].isin(busy_students)]
+    
+    return available_students.to_dict('records')
 
 if not st.session_state.get("authenticated", False):
     # Login System
     st.title("🔐 Login to Timetable System")
-    email_input = st.text_input("Enter your email address")
+    email_input = st.text_input("Enter your email address", key="login_email")
 
-    if st.button("Send OTP"):
+    if st.button("Send OTP", key="send_otp_btn"):
         if not email_input:
             st.error("Please enter an email address!")
         elif not email_input.endswith("@kluniversity.in") and email_input != ADMIN_EMAIL:
@@ -169,8 +242,8 @@ if not st.session_state.get("authenticated", False):
                 st.success("OTP sent to your email. Please check your inbox!")
 
     # OTP Verification
-    otp_input = st.text_input("Enter the OTP sent to your email")
-    if st.button("Verify OTP"):
+    otp_input = st.text_input("Enter the OTP sent to your email", key="otp_input")
+    if st.button("Verify OTP", key="verify_otp_btn"):
         if otp_input == st.session_state.otp:
             st.session_state.authenticated = True
             st.session_state.user_email = email_input
@@ -186,7 +259,7 @@ if st.session_state.authenticated:
     with st.sidebar:
         if st.session_state.get("user_email"):
             st.write(f"✅ Logged in as: {st.session_state.user_email}")
-            if st.button("Logout"):
+            if st.button("Logout", key="logout_btn"):
                 st.session_state.authenticated = False  # Reset authentication state
                 st.session_state.is_admin = False  # Reset admin state
                 st.session_state.user_email = None  # Clear stored email
@@ -197,11 +270,11 @@ if st.session_state.authenticated:
 
     with tab1:
         st.header("Upload Student Timetable")
-        student_id = st.text_input("Enter Student ID")
-        student_name = st.text_input("Enter Student Name")
+        student_id = st.text_input("Enter Student ID", key="upload_student_id")
+        student_name = st.text_input("Enter Student Name", key="upload_student_name")
 
         # File upload
-        uploaded_file = st.file_uploader("Upload Timetable File", type=['csv', 'xlsx', 'xls'])
+        uploaded_file = st.file_uploader("Upload Timetable File", type=['csv', 'xlsx', 'xls'], key="timetable_file")
 
         if uploaded_file is not None:
             try:
@@ -213,15 +286,15 @@ if st.session_state.authenticated:
 
                 # Show raw data preview
                 st.write("### Raw Data Preview")
-                st.dataframe(df)
+                st.dataframe(df, key="raw_data_preview")
 
-                if st.button("Process and Upload") and student_id and student_name:
+                if st.button("Process and Upload", key="process_upload_btn") and student_id and student_name:
                     # Process the data
                     processed_df = process_timetable_data(df, student_id, student_name)
 
                     # Show processed data preview
                     st.write("### Processed Data Preview")
-                    st.dataframe(processed_df)
+                    st.dataframe(processed_df, key="processed_data_preview")
 
                     # Upload to Supabase
                     success, message = upload_to_supabase(processed_df)
@@ -235,22 +308,22 @@ if st.session_state.authenticated:
     if st.session_state.is_admin:
         with tab2:
             st.header("Check Student Schedule")
-            search_id = st.text_input("Enter Student ID to Check Schedule")
+            search_id = st.text_input("Enter Student ID to Check Schedule", key="search_student_id")
 
             # Sub-tab - Check Schedule by Time Range
-            sub_tab1, sub_tab2 = st.tabs(["Check Schedule by Time Range", "Full Day Schedule"])
+            sub_tab1, sub_tab2, sub_tab3 = st.tabs(["Check Schedule by Time Range", "Full Day Schedule", "Data Analysis"])
 
             with sub_tab1:
                 st.header("Check Schedule by Time Range")
                 weekday_order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
                 # Get day input (from the weekday_order list)
-                day_input = st.selectbox("Select Day", options=weekday_order)
+                day_input = st.selectbox("Select Day", options=weekday_order, key="day_select_tab1")
 
                 # Get time input
-                start_time = st.time_input("Start Time", value=None)
-                end_time = st.time_input("End Time", value=None)
+                start_time = st.time_input("Start Time", value=None, key="start_time_tab1")
+                end_time = st.time_input("End Time", value=None, key="end_time_tab1")
 
-                if st.button("Check Availability"):
+                if st.button("Check Availability", key="check_avail_btn_tab1"):
                     if search_id and day_input and start_time and end_time:
                         results = check_availability(search_id)
                         if results:
@@ -297,7 +370,7 @@ if st.session_state.authenticated:
                         st.error("Please enter a Student ID, select a Day, and both Start and End times.")
 
             with sub_tab2:
-                if st.button("View Full Schedule"):
+                if st.button("View Full Schedule", key="view_full_schedule_btn"):
                     if search_id:
                         results = check_availability(search_id)
                         if results:
@@ -330,6 +403,310 @@ if st.session_state.authenticated:
                             st.info("No schedule found for this student.")
                     else:
                         st.error("Please enter a Student ID.")
+            
+            with sub_tab3:
+                st.header("Student Data Analysis")
+                
+                analysis_options = ["Batch-wise Analysis", "Student Availability by Time Slot", "Course Analysis"]
+                analysis_choice = st.radio("Select Analysis Type", analysis_options, key="analysis_type_radio")
+                
+                if analysis_choice == "Batch-wise Analysis":
+                    st.subheader("Batch-wise Student Distribution")
+                    
+                    # Fetch all data
+                    all_data = get_all_timetable_data()
+                    
+                    if all_data:
+                        df = pd.DataFrame(all_data)
+                        
+                        # Get unique students with their IDs
+                        students_df = df[['id', 'student_name']].drop_duplicates()
+                        
+                        # Add batch year column
+                        students_df['batch'] = students_df['id'].apply(get_batch_year)
+                        
+                        # Display student distribution by batch
+                        batch_counts = students_df['batch'].value_counts().reset_index()
+                        batch_counts.columns = ['Batch', 'Number of Students']
+                        
+                        st.write("### Student Distribution by Batch")
+                        st.dataframe(batch_counts, key="batch_counts_df")
+                        
+                        # Create a pie chart of the distribution
+                        st.write("### Batch Distribution")
+                        st.bar_chart(batch_counts.set_index('Batch'))
+                        
+                        # Allow downloading the student data by batch
+                        st.write("### Download Student Data by Batch")
+                        
+                        # Select batch to download
+                        selected_batch = st.selectbox("Select Batch to Download", 
+                                                    students_df['batch'].unique().tolist(),
+                                                    key="batch_download_select")
+                        
+                        # Filter students by selected batch
+                        batch_students = students_df[students_df['batch'] == selected_batch]
+                        
+                        # Convert to CSV
+                        csv = batch_students.to_csv(index=False).encode('utf-8')
+                        
+                        st.download_button(
+                            label=f"Download {selected_batch} Students Data",
+                            data=csv,
+                            file_name=f"{selected_batch}_students.csv",
+                            mime="text/csv",
+                            key="download_batch_btn"
+                        )
+                    else:
+                        st.info("No data available for analysis.")
+                
+                elif analysis_choice == "Student Availability by Time Slot":
+                    st.subheader("Student Availability by Time Slot")
+                    
+                    # Select day and time slot
+                    weekday_order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+                    selected_day = st.selectbox("Select Day", options=weekday_order, key="availability_day_select")
+                    
+                    # Allow for custom time slot range selection
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        start_slot = st.selectbox("Start Time Slot", 
+                                            options=list(range(1, 12)),
+                                            format_func=lambda x: time_slot_mapping.get(x, f"Slot {x}"),
+                                            key="availability_start_slot_select")
+                    with col2:
+                        end_slot = st.selectbox("End Time Slot", 
+                                            options=list(range(start_slot, 12)),
+                                            format_func=lambda x: time_slot_mapping.get(x, f"Slot {x}"),
+                                            key="availability_end_slot_select")
+                    
+                    if st.button("Find Available Students", key="find_available_btn"):
+                        # Get all data
+                        all_data = get_all_timetable_data()
+                        
+                        if all_data:
+                            # Create time slot range
+                            time_slot_range = list(range(start_slot, end_slot + 1))
+                            
+                            # Get available students and their class details if any
+                            available_students = []
+                            students_with_partial_classes = []
+                            
+                            # Group all students
+                            student_ids = set([record['id'] for record in all_data])
+                            
+                            for student_id in student_ids:
+                                # Get student records
+                                student_records = [r for r in all_data if r['id'] == student_id]
+                                
+                                if not student_records:
+                                    continue
+                                
+                                student_name = student_records[0]['student_name']
+                                
+                                # Check if student has classes in the selected day and time slot range
+                                classes_in_range = []
+                                for record in student_records:
+                                    if record['day'] == selected_day and record['time_slot'] in time_slot_range:
+                                        # Parse class_details to extract course code, section, and room
+                                        class_details = record.get('class_details', '')
+                                        
+                                        # Improved parsing for format: "22ASS3309A-P - S-11 -RoomNo-R204A"
+                                        parts = class_details.split('-')
+                                        
+                                        # Extract course code (everything before first hyphen)
+                                        course_code = parts[0].strip() if parts else "Unknown"
+                                        
+                                        # Extract section number (part that contains S-xx)
+                                        section = "S-01"  # Default
+                                        for i in range(len(parts) - 1):
+                                            if parts[i].strip() == "S" and i + 1 < len(parts) and parts[i + 1].strip().isdigit():
+                                                section = f"S-{parts[i + 1].strip()}"
+                                                break
+                                            # Check for "S-11" format (without spaces)
+                                            elif parts[i].strip().startswith("S") and len(parts[i].strip()) > 1:
+                                                section = parts[i].strip()
+                                                break
+                                        
+                                        # Extract room (part that follows "RoomNo")
+                                        room = "Unknown"
+                                        for i, part in enumerate(parts):
+                                            if part.strip() == "RoomNo" and i + 1 < len(parts):
+                                                room = parts[i+1].strip()
+                                                break
+                                        
+                                        classes_in_range.append({
+                                            'time_slot': record['time_slot'],
+                                            'course_code': course_code,
+                                            'section': section,
+                                            'room': room,
+                                            'class_details': class_details  # Keep original string
+                                        })
+                                
+                                # If no classes in range, student is fully available
+                                if not classes_in_range:
+                                    available_students.append({
+                                        'id': student_id,
+                                        'student_name': student_name,
+                                        'status': 'Fully Available',
+                                        'classes': None
+                                    })
+                                else:
+                                    # Consolidate continuous time slots with same course and room
+                                    consolidated_classes = []
+                                    current_class = None
+                                    
+                                    # Sort classes by time slot
+                                    sorted_classes = sorted(classes_in_range, key=lambda x: x['time_slot'])
+                                    
+                                    for class_info in sorted_classes:
+                                        if current_class is None:
+                                            current_class = class_info.copy()
+                                            current_class['end_slot'] = class_info['time_slot']
+                                        elif (current_class['course_code'] == class_info['course_code'] and 
+                                            current_class['room'] == class_info['room'] and
+                                            current_class['end_slot'] + 1 == class_info['time_slot']):
+                                            # Extend the current class if continuous
+                                            current_class['end_slot'] = class_info['time_slot']
+                                        else:
+                                            # Add the completed class and start a new one
+                                            consolidated_classes.append(current_class)
+                                            current_class = class_info.copy()
+                                            current_class['end_slot'] = class_info['time_slot']
+                                    
+                                    # Add the last class if any
+                                    if current_class:
+                                        consolidated_classes.append(current_class)
+                                    
+                                    # Format the classes for display
+                                    classes_info = []
+                                    for cls in consolidated_classes:
+                                        if cls['time_slot'] == cls['end_slot']:
+                                            time_info = f"{time_slot_mapping.get(cls['time_slot'])}"
+                                        else:
+                                            time_info = f"{time_slot_mapping.get(cls['time_slot'])} - {time_slot_mapping.get(cls['end_slot'])}"
+                                        
+                                        # Use original class_details if parsing was challenging
+                                        if cls['course_code'] == "Unknown" or cls['room'] == "Unknown":
+                                            classes_info.append(f"{cls['class_details']} (Time: {time_info})")
+                                        else:
+                                            classes_info.append(f"{cls['course_code']} (Sec: {cls['section']}, Room: {cls['room']}, Time: {time_info})")
+                                    
+                                    students_with_partial_classes.append({
+                                        'id': student_id,
+                                        'student_name': student_name,
+                                        'status': 'Partially Available',
+                                        'classes': ", ".join(classes_info)
+                                    })
+                            
+                            # Combine fully available and partially available
+                            all_students_info = available_students + students_with_partial_classes
+                            
+                            if all_students_info:
+                                # Create dataframe and add batch information
+                                result_df = pd.DataFrame(all_students_info)
+                                result_df['batch'] = result_df['id'].apply(get_batch_year)
+                                
+                                # Display available students
+                                st.write(f"### Students Availability on {selected_day} during {time_slot_mapping.get(start_slot)} to {time_slot_mapping.get(end_slot)}")
+                                
+                                # Display fully available students
+                                fully_available_df = result_df[result_df['status'] == 'Fully Available']
+                                if not fully_available_df.empty:
+                                    st.write("#### Fully Available Students")
+                                    st.dataframe(fully_available_df[['id', 'student_name', 'batch']], key="fully_available_students_df")
+                                
+                                # Display partially available students (with classes)
+                                partially_available_df = result_df[result_df['status'] == 'Partially Available']
+                                if not partially_available_df.empty:
+                                    st.write("#### Students With Classes")
+                                    st.dataframe(partially_available_df[['id', 'student_name', 'batch', 'classes']], key="partially_available_students_df")
+                                
+                                # Summary stats
+                                availability_summary = result_df['status'].value_counts().reset_index()
+                                availability_summary.columns = ['Availability Status', 'Count']
+                                
+                                batch_summary = result_df['batch'].value_counts().reset_index()
+                                batch_summary.columns = ['Batch', 'Total Students']
+                                
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.write("### Availability Summary")
+                                    st.dataframe(availability_summary, key="availability_summary_df")
+                                
+                                with col2:
+                                    st.write("### Students by Batch")
+                                    st.dataframe(batch_summary, key="batch_summary_df")
+                                
+                                # Download option
+                                csv = result_df.to_csv(index=False).encode('utf-8')
+                                
+                                st.download_button(
+                                    label=f"Download Students Availability List",
+                                    data=csv,
+                                    file_name=f"students_availability_{selected_day}_slot{start_slot}to{end_slot}.csv",
+                                    mime="text/csv",
+                                    key="download_available_btn"
+                                )
+                            else:
+                                st.info(f"No students available on {selected_day} during {time_slot_mapping.get(start_slot)} to {time_slot_mapping.get(end_slot)}")
+                        else:
+                            st.info("No data available for analysis.")
+                
+                elif analysis_choice == "Course Analysis":
+                    st.subheader("Course Details Analysis")
+                    
+                    # Fetch all data
+                    all_data = get_all_timetable_data()
+                    
+                    if all_data:
+                        df = pd.DataFrame(all_data)
+                        
+                        # Parse class details
+                        parsed_details = []
+                        for _, row in df.iterrows():
+                            details = parse_class_details(row['class_details'])
+                            details.update({
+                                'id': row['id'],
+                                'student_name': row['student_name'],
+                                'day': row['day'],
+                                'time_slot': row['time_slot']
+                            })
+                            parsed_details.append(details)
+                        
+                        parsed_df = pd.DataFrame(parsed_details)
+                        
+                        # Add batch year
+                        parsed_df['batch'] = parsed_df['id'].apply(get_batch_year)
+                        
+                        # Course distribution
+                        course_counts = parsed_df['course_code'].value_counts().reset_index()
+                        course_counts.columns = ['Course Code', 'Number of Occurrences']
+                        
+                        st.write("### Course Distribution")
+                        st.dataframe(course_counts, key="course_counts_df")
+                        
+                        # Room utilization
+                        room_counts = parsed_df['room'].value_counts().reset_index()
+                        room_counts.columns = ['Room', 'Number of Occurrences']
+                        
+                        st.write("### Room Utilization")
+                        st.dataframe(room_counts, key="room_counts_df")
+                        
+                        # Download detailed course data
+                        st.write("### Download Detailed Course Data")
+                        
+                        csv = parsed_df.to_csv(index=False).encode('utf-8')
+                        
+                        st.download_button(
+                            label="Download Complete Course Analysis",
+                            data=csv,
+                            file_name="course_analysis.csv",
+                            mime="text/csv",
+                            key="download_course_analysis_btn"
+                        )
+                    else:
+                        st.info("No data available for analysis.")
 
 # Add instructions
 st.markdown("---")
@@ -343,6 +720,7 @@ st.markdown("""
 2. In the **Check Schedule** tab:
    - Enter a student ID to view their complete schedule
    - The schedule will show all classes organized by day and time slot
+   - Use the **Data Analysis** tab to analyze batch information and student availability
 
 ### File Format Requirements:
 - First column should contain days (Mon, Tue, etc.)
