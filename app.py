@@ -54,23 +54,23 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 # Create users table if not exists
-def init_users_table():
-    try:
-        # Check if super admin exists
-        response = supabase.table("users").select("*").eq("email", SUPER_ADMIN_EMAIL).execute()
-        if not response.data:
-            # Create super admin if doesn't exist
-            super_admin = {
-                "email": SUPER_ADMIN_EMAIL,
-                "password": hash_password("admin123"),  # Default password
-                "is_admin": True,
-                "super_admin": True,
-                "created_at": datetime.datetime.now().isoformat()
-            }
-            supabase.table("users").insert(super_admin).execute()
-            st.success(f"Super admin account created: {SUPER_ADMIN_EMAIL}")
-    except Exception as e:
-        st.error(f"Error initializing users table: {str(e)}")
+# def init_users_table():
+#     try:
+#         # Check if super admin exists
+#         response = supabase.table("users").select("*").eq("email", SUPER_ADMIN_EMAIL).execute()
+#         if not response.data:
+#             # Create super admin if doesn't exist
+#             super_admin = {
+#                 "email": SUPER_ADMIN_EMAIL,
+#                 "password": hash_password("admin123"),  # Default password
+#                 "is_admin": True,
+#                 "super_admin": True,
+#                 "created_at": datetime.datetime.now().isoformat()
+#             }
+#             supabase.table("users").insert(super_admin).execute()
+#             st.success(f"Super admin account created: {SUPER_ADMIN_EMAIL}")
+#     except Exception as e:
+#         st.error(f"Error initializing users table: {str(e)}")
 
 # User authentication functions
 def signup_user(email, password, confirm_password):
@@ -287,7 +287,7 @@ def get_available_students(day, time_slot, all_data=None):
     return available_students.to_dict('records')
 
 # Initialize the database
-init_users_table()
+# init_users_table()
 
 # App Navigation
 def show_login_page():
@@ -537,13 +537,30 @@ def main():
                                     st.error(message)
                         except Exception as e:
                             st.error(f"Error processing file: {str(e)}")
+                    st.markdown("---")
+                    st.markdown("""
+                    ### Instructions:
+                    1. In the **Upload** tab:
+                    - Enter the student's ID and name
+                    - Upload your timetable file (CSV or Excel)
+                    - Review the data preview
+                    - Click "Process and Upload" to save the schedule
+                    2. In the **Check Schedule** tab:
+                    - Enter a student ID to view their complete schedule
+                    - The schedule will show all classes organized by day and time slot
 
+                    ### File Format Requirements:
+                    - First column should contain days (Mon, Tue, etc.)
+                    - Columns 1-11 should contain the time slots
+                    - Use '-' or leave empty for free slots
+                    """)
+                    
                 with tab2:
                     st.header("Check Student Schedule")
                     search_id = st.text_input("Enter Student ID to Check Schedule", key="search_student_id")
 
                     # Sub-tab - Check Schedule by Time Range
-                    sub_tab1, sub_tab2, sub_tab3 = st.tabs(["Check Schedule by Time Range", "Full Day Schedule", "Data Analysis"])
+                    sub_tab1, sub_tab2 = st.tabs(["Check Schedule by Time Range", "Full Day Schedule"])
 
                     with sub_tab1:
                         st.header("Check Schedule by Time Range")
@@ -976,26 +993,24 @@ def main():
                                     st.error(message)
                         except Exception as e:
                             st.error(f"Error processing file: {str(e)}")
+                    st.markdown("---")
+                    st.markdown("""
+                    ### Instructions:
+                    1. In the **Upload** tab:
+                    - Enter the student's ID and name
+                    - Upload your timetable file (CSV or Excel)
+                    - Review the data preview
+                    - Click "Process and Upload" to save the schedule
+                                
+                    ### File Format Requirements:
+                    - First column should contain days (Mon, Tue, etc.)
+                    - Columns 1-11 should contain the time slots
+                    - Use '-' or leave empty for free slots
+                    """)
 
-    # Add instructions
-    st.markdown("---")
-    st.markdown("""
-    ### Instructions:
-    1. In the **Upload** tab:
-       - Enter the student's ID and name
-       - Upload your timetable file (CSV or Excel)
-       - Review the data preview
-       - Click "Process and Upload" to save the schedule
-    2. In the **Check Schedule** tab:
-       - Enter a student ID to view their complete schedule
-       - The schedule will show all classes organized by day and time slot
+                    
 
-    ### File Format Requirements:
-    - First column should contain days (Mon, Tue, etc.)
-    - Columns 1-11 should contain the time slots
-    - Use '-' or leave empty for free slots
-    """)
-
+    
     st.markdown("---")
     st.markdown("""
         <p style='text-align:center; font-size:14px; color:gray;'>
