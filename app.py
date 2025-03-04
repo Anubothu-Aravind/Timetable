@@ -53,25 +53,6 @@ def hash_password(password):
     """Hash a password using SHA-256."""
     return hashlib.sha256(password.encode()).hexdigest()
 
-# Create users table if not exists
-# def init_users_table():
-#     try:
-#         # Check if super admin exists
-#         response = supabase.table("users").select("*").eq("email", SUPER_ADMIN_EMAIL).execute()
-#         if not response.data:
-#             # Create super admin if doesn't exist
-#             super_admin = {
-#                 "email": SUPER_ADMIN_EMAIL,
-#                 "password": hash_password("admin123"),  # Default password
-#                 "is_admin": True,
-#                 "super_admin": True,
-#                 "created_at": datetime.datetime.now().isoformat()
-#             }
-#             supabase.table("users").insert(super_admin).execute()
-#             st.success(f"Super admin account created: {SUPER_ADMIN_EMAIL}")
-#     except Exception as e:
-#         st.error(f"Error initializing users table: {str(e)}")
-
 # User authentication functions
 def signup_user(email, password, confirm_password):
     """Register a new user."""
